@@ -70,7 +70,8 @@ export class CaptchaSolver {
 
       // Determine execution providers - default to GPU enabled, can be disabled via USE_GPU=false
       const useGpu = process.env.USE_GPU !== "false";
-      const executionProviders: string[] = [];
+      let executionProviders: string[] = [];
+      let sessionCreated = false;
       
       if (useGpu) {
         // Try GPU providers first, fallback to CPU
@@ -79,38 +80,67 @@ export class CaptchaSolver {
         // Note: CUDA EP binaries are included by default in onnxruntime-node
         if (process.platform === "win32") {
           // Windows: Try DirectML first (works with AMD/NVIDIA/Intel GPUs), then CUDA, then CPU
-          executionProviders.push("dml", "cuda", "cpu");
+          executionProviders = ["dml", "cuda", "cpu"];
         } else {
           // Linux: Try CUDA first, then CPU
-          executionProviders.push("cuda", "cpu");
+          executionProviders = ["cuda", "cpu"];
         }
         logger.info("SOLVER", "GPU support enabled - attempting to use GPU execution providers");
+        
+        // Try to create session with GPU providers first
+        try {
+          const sessionOptions: ort.InferenceSession.SessionOptions = {
+            executionProviders: executionProviders,
+            graphOptimizationLevel: "all",
+            enableCpuMemArena: true,
+            enableMemPattern: true,
+            executionMode: "parallel",
+            interOpNumThreads: 4,
+            intraOpNumThreads: 4,
+          };
+
+          this.session = await ort.InferenceSession.create(
+            modelPath,
+            sessionOptions,
+          );
+          sessionCreated = true;
+        } catch (gpuError) {
+          // GPU initialization failed, fallback to CPU
+          logger.warn("SOLVER", "GPU initialization failed, falling back to CPU:", gpuError instanceof Error ? gpuError.message : String(gpuError));
+          executionProviders = ["cpu"];
+          this.gpuStatus.enabled = false; // Mark as disabled since it failed
+        }
       } else {
         // CPU-only execution
-        executionProviders.push("cpu");
+        executionProviders = ["cpu"];
         logger.info("SOLVER", "Using CPU-only execution");
       }
 
-      const sessionOptions: ort.InferenceSession.SessionOptions = {
-        executionProviders: executionProviders,
-        graphOptimizationLevel: "all",
-        enableCpuMemArena: true,
-        enableMemPattern: true,
-        executionMode: "parallel", // Enable parallel execution
-        interOpNumThreads: 4, // Adjust based on CPU cores
-        intraOpNumThreads: 4,
-      };
+      // If session wasn't created (GPU failed), create with CPU
+      if (!sessionCreated) {
+        const sessionOptions: ort.InferenceSession.SessionOptions = {
+          executionProviders: executionProviders,
+          graphOptimizationLevel: "all",
+          enableCpuMemArena: true,
+          enableMemPattern: true,
+          executionMode: "parallel",
+          interOpNumThreads: 4,
+          intraOpNumThreads: 4,
+        };
 
-      this.session = await ort.InferenceSession.create(
-        modelPath,
-        sessionOptions,
-      );
+        this.session = await ort.InferenceSession.create(
+          modelPath,
+          sessionOptions,
+        );
+      }
 
       // Get available execution providers and determine which one is being used
       const availableProviders = await ort.InferenceSession.getAvailableProviders();
       this.gpuStatus.availableProviders = availableProviders;
       this.gpuStatus.requestedProviders = executionProviders;
-      this.gpuStatus.enabled = useGpu;
+      if (!this.gpuStatus.enabled) {
+        this.gpuStatus.enabled = useGpu; // Only set if not already set by error handler
+      }
 
       // Determine which provider is actually being used
       // ONNX Runtime will use the first available provider from the requested list

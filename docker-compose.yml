@@ -8,6 +8,14 @@ services:
       - PORT=3001
       - NODE_ENV=production
       - USE_GPU=${USE_GPU:-true}
+    # GPU support: Enable GPU passthrough (requires nvidia-docker2 installed on host)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:3001/health"]
