@@ -18,6 +18,7 @@ interface SolveResult {
   success: boolean;
   method: "ONNX";
   confidence: number;
+  solveTimeMs: number;
 }
 
 interface CaptchaSolverStats {
@@ -25,6 +26,9 @@ interface CaptchaSolverStats {
   successfulDecodes: number;
   failures: number;
   averageConfidence: number;
+  averageSolveTimeMs: number;
+  minSolveTimeMs: number;
+  maxSolveTimeMs: number;
 }
 
 interface GpuStatus {
@@ -62,6 +66,9 @@ export class CaptchaSolver {
     successfulDecodes: 0,
     failures: 0,
     averageConfidence: 0,
+    averageSolveTimeMs: 0,
+    minSolveTimeMs: Infinity,
+    maxSolveTimeMs: 0,
   };
 
   async initialize(modelPath: string, metadataPath: string): Promise<void> {
@@ -72,7 +79,7 @@ export class CaptchaSolver {
       const useGpu = process.env.USE_GPU !== "false";
       let executionProviders: string[] = [];
       let sessionCreated = false;
-      
+
       if (useGpu) {
         // Try GPU providers first, fallback to CPU
         // CUDA for NVIDIA GPUs (Linux/Windows with CUDA installed)
@@ -85,8 +92,11 @@ export class CaptchaSolver {
           // Linux: Try CUDA first, then CPU
           executionProviders = ["cuda", "cpu"];
         }
-        logger.info("SOLVER", "GPU support enabled - attempting to use GPU execution providers");
-        
+        logger.info(
+          "SOLVER",
+          "GPU support enabled - attempting to use GPU execution providers",
+        );
+
         // Try to create session with GPU providers first
         try {
           const sessionOptions: ort.InferenceSession.SessionOptions = {
@@ -106,7 +116,11 @@ export class CaptchaSolver {
           sessionCreated = true;
         } catch (gpuError) {
           // GPU initialization failed, fallback to CPU
-          logger.warn("SOLVER", "GPU initialization failed, falling back to CPU:", gpuError instanceof Error ? gpuError.message : String(gpuError));
+          logger.warn(
+            "SOLVER",
+            "GPU initialization failed, falling back to CPU:",
+            gpuError instanceof Error ? gpuError.message : String(gpuError),
+          );
           executionProviders = ["cpu"];
           this.gpuStatus.enabled = false; // Mark as disabled since it failed
         }
@@ -136,7 +150,10 @@ export class CaptchaSolver {
         this.gpuStatus.provider = "cpu";
         this.gpuStatus.available = false;
         this.gpuStatus.enabled = false; // Mark as disabled since it failed
-        logger.info("SOLVER", "Using execution provider: CPU (GPU unavailable)");
+        logger.info(
+          "SOLVER",
+          "Using execution provider: CPU (GPU unavailable)",
+        );
       } else {
         // Session was created successfully - determine which provider is being used
         // Since we requested providers in order, ONNX Runtime uses the first available one
@@ -147,7 +164,7 @@ export class CaptchaSolver {
           // If we requested ["dml", "cuda", "cpu"] and it succeeded, it's likely DML or CUDA
           const gpuProviders = ["cuda", "dml", "tensorrt", "rocm"];
           const firstRequested = executionProviders[0];
-          
+
           if (firstRequested && gpuProviders.includes(firstRequested)) {
             // Assume GPU provider is being used since session creation succeeded
             this.gpuStatus.provider = firstRequested;
@@ -264,12 +281,15 @@ export class CaptchaSolver {
   }
 
   async solveCaptcha(imageBuffer: Buffer, fid?: string): Promise<SolveResult> {
+    const startTime = performance.now();
+
     if (!this.isInitialized || !this.session || !this.metadata) {
       return {
         code: null,
         success: false,
         method: "ONNX",
         confidence: 0.0,
+        solveTimeMs: 0,
       };
     }
 
@@ -279,7 +299,14 @@ export class CaptchaSolver {
       const inputTensor = await this.preprocessImage(imageBuffer);
       if (!inputTensor) {
         this.stats.failures++;
-        return { code: null, success: false, method: "ONNX", confidence: 0.0 };
+        const solveTimeMs = performance.now() - startTime;
+        return {
+          code: null,
+          success: false,
+          method: "ONNX",
+          confidence: 0.0,
+          solveTimeMs,
+        };
       }
 
       // Use cached input name
@@ -317,6 +344,22 @@ export class CaptchaSolver {
         predictedText.length === 4 &&
         [...predictedText].every((c) => this.validCharacters.has(c));
 
+      const solveTimeMs = performance.now() - startTime;
+
+      // Update timing stats
+      this.stats.averageSolveTimeMs =
+        (this.stats.averageSolveTimeMs * (this.stats.totalAttempts - 1) +
+          solveTimeMs) /
+        this.stats.totalAttempts;
+      this.stats.minSolveTimeMs = Math.min(
+        this.stats.minSolveTimeMs,
+        solveTimeMs,
+      );
+      this.stats.maxSolveTimeMs = Math.max(
+        this.stats.maxSolveTimeMs,
+        solveTimeMs,
+      );
+
       if (isValid) {
         this.stats.successfulDecodes++;
         this.stats.averageConfidence =
@@ -328,7 +371,7 @@ export class CaptchaSolver {
         if (process.env.NODE_ENV === "development" || avgConfidence < 0.9) {
           logger.info(
             "SOLVER",
-            `ID ${fid}: Solved '${predictedText}' (${avgConfidence.toFixed(3)})`,
+            `ID ${fid}: Solved '${predictedText}' (${avgConfidence.toFixed(3)}, ${solveTimeMs.toFixed(1)}ms)`,
           );
         }
 
@@ -337,16 +380,33 @@ export class CaptchaSolver {
           success: true,
           method: "ONNX",
           confidence: avgConfidence,
+          solveTimeMs,
         };
       } else {
         this.stats.failures++;
-        logger.warn("SOLVER", `ID ${fid}: Failed validation`);
-        return { code: null, success: false, method: "ONNX", confidence: 0.0 };
+        logger.warn(
+          "SOLVER",
+          `ID ${fid}: Failed validation (${solveTimeMs.toFixed(1)}ms)`,
+        );
+        return {
+          code: null,
+          success: false,
+          method: "ONNX",
+          confidence: 0.0,
+          solveTimeMs,
+        };
       }
     } catch (error) {
       this.stats.failures++;
+      const solveTimeMs = performance.now() - startTime;
       logger.error("SOLVER", `ID ${fid}: Exception:`, error);
-      return { code: null, success: false, method: "ONNX", confidence: 0.0 };
+      return {
+        code: null,
+        success: false,
+        method: "ONNX",
+        confidence: 0.0,
+        solveTimeMs,
+      };
     }
   }
 
@@ -370,6 +430,7 @@ export class CaptchaSolver {
     // Run inference on all tensors in parallel
     const results = await Promise.all(
       tensors.map(async (tensor, idx) => {
+        const startTime = performance.now();
         const fid = ids?.[idx];
         this.stats.totalAttempts++;
 
@@ -407,6 +468,22 @@ export class CaptchaSolver {
             predictedText.length === 4 &&
             [...predictedText].every((c) => this.validCharacters.has(c));
 
+          const solveTimeMs = performance.now() - startTime;
+
+          // Update timing stats
+          this.stats.averageSolveTimeMs =
+            (this.stats.averageSolveTimeMs * (this.stats.totalAttempts - 1) +
+              solveTimeMs) /
+            this.stats.totalAttempts;
+          this.stats.minSolveTimeMs = Math.min(
+            this.stats.minSolveTimeMs,
+            solveTimeMs,
+          );
+          this.stats.maxSolveTimeMs = Math.max(
+            this.stats.maxSolveTimeMs,
+            solveTimeMs,
+          );
+
           if (isValid) {
             this.stats.successfulDecodes++;
             this.stats.averageConfidence =
@@ -420,6 +497,7 @@ export class CaptchaSolver {
               success: true,
               method: "ONNX" as const,
               confidence: avgConfidence,
+              solveTimeMs,
             };
           } else {
             this.stats.failures++;
@@ -428,16 +506,19 @@ export class CaptchaSolver {
               success: false,
               method: "ONNX" as const,
               confidence: 0.0,
+              solveTimeMs,
             };
           }
         } catch (error) {
           this.stats.failures++;
+          const solveTimeMs = performance.now() - startTime;
           logger.error("SOLVER", `Batch ID ${fid}: Exception:`, error);
           return {
             code: null,
             success: false,
             method: "ONNX" as const,
             confidence: 0.0,
+            solveTimeMs,
           };
         }
       }),

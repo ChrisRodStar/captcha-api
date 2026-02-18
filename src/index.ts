@@ -67,6 +67,7 @@ app.post("/solve", async (c) => {
       code: result.code,
       confidence: result.confidence,
       method: result.method,
+      solveTimeMs: result.solveTimeMs,
     });
   } catch (error) {
     logger.error("API", "Error solving CAPTCHA:", error);
@@ -93,6 +94,7 @@ app.post("/solve/batch", async (c) => {
           success: result.success,
           code: result.code,
           confidence: result.confidence,
+          solveTimeMs: result.solveTimeMs,
         };
       }),
     );
