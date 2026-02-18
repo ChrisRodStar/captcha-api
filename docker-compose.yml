@@ -9,8 +9,8 @@ services:
       - NODE_ENV=production
       - USE_GPU=${USE_GPU:-true}
       - NVIDIA_VISIBLE_DEVICES=all
-      # Add CUDA library paths for onnxruntime-node
-      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda-12/lib64:${LD_LIBRARY_PATH}
+      # Add CUDA library paths for onnxruntime-node (nvidia-container-toolkit provides these)
+      - LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda-12/lib64:/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}
     # GPU support: Enable GPU passthrough (requires nvidia-container-toolkit installed on host)
     # Using runtime: nvidia (simpler, works with older docker-compose)
     runtime: nvidia
