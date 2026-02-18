@@ -1,7 +1,7 @@
-FROM oven/bun:1-debian AS base
+FROM oven/bun:1-debian
 WORKDIR /app
 
-# Install system dependencies for onnxruntime-node (CPU)
+# Install system dependencies for onnxruntime-node (CPU) + healthcheck
 RUN apt-get update && apt-get install -y \
     libgomp1 \
     wget \
@@ -9,17 +9,14 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
+# Install dependencies with Bun (no --frozen-lockfile so Bun can resolve for Linux in Docker)
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+RUN bun install
 
 # Copy source code and models
 COPY src ./src
 COPY models ./models
 COPY tsconfig.json ./
 
-# Expose port
 EXPOSE 3001
-
-# Run the application
 CMD ["bun", "run", "src/index.ts"]
