@@ -9,6 +9,12 @@ RUN apt-get update && apt-get install -y \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
 
+# Install cuDNN 9 (onnxruntime-node requires cuDNN 9, but base image has cuDNN 8)
+RUN apt-get update && apt-get install -y \
+    libcudnn9-cuda-12 \
+    && rm -rf /var/lib/apt/lists/* \
+    && ldconfig
+
 # Note: For GPU support:
 # 1. NVIDIA GPU with CUDA 12.x drivers installed on the host (✓ verified working)
 # 2. nvidia-container-toolkit installed on the host (✓ verified working)
