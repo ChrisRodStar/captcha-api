@@ -14,10 +14,11 @@ RUN apt-get update && apt-get install -y \
 # Install CUDA runtime libraries for GPU support (required by onnxruntime-node CUDA provider)
 # These are the minimal CUDA runtime libraries needed for onnxruntime-node
 # Note: This installs CUDA 12.2 runtime libraries compatible with CUDA 12.x
+# Workaround for Debian Trixie's strict GPG key requirements (SHA1 rejection)
 RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && \
     dpkg -i cuda-keyring_1.1-1_all.deb && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
+    apt-get update --allow-insecure-repositories && \
+    apt-get install -y --no-install-recommends --allow-unauthenticated \
     cuda-cudart-12-2 \
     cuda-nvrtc-12-2 \
     libcublas-12-2 \
