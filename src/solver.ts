@@ -51,7 +51,7 @@ export class CaptchaSolver {
     try {
       logger.info("SOLVER", `Loading ONNX model from: ${modelPath}`);
 
-      // Configure CUDA execution provider for GPU acceleration
+      // Configure CUDA execution provider for GPU acceleration (falls back to CPU if unavailable)
       const sessionOptions: ort.InferenceSession.SessionOptions = {
         executionProviders: [
           {
