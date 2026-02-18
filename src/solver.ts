@@ -32,6 +32,14 @@ export class CaptchaSolver {
   private metadata: ModelMetadata | null = null;
   private isInitialized = false;
 
+  // Cached values for performance
+  private height: number = 0;
+  private width: number = 0;
+  private mean: number = 0;
+  private std: number = 0;
+  private validCharacters: Set<string> = new Set();
+  private inputName: string = "";
+
   private stats: CaptchaSolverStats = {
     totalAttempts: 0,
     successfulDecodes: 0,
@@ -48,13 +56,16 @@ export class CaptchaSolver {
         executionProviders: [
           {
             name: "cuda",
-            deviceId: 0, // Use first GPU
+            deviceId: 0,
           },
-          "cpu", // Fallback to CPU if CUDA unavailable
+          "cpu",
         ],
         graphOptimizationLevel: "all",
         enableCpuMemArena: true,
         enableMemPattern: true,
+        executionMode: "parallel", // Enable parallel execution
+        interOpNumThreads: 4, // Adjust based on CPU cores
+        intraOpNumThreads: 4,
       };
 
       this.session = await ort.InferenceSession.create(
@@ -62,35 +73,44 @@ export class CaptchaSolver {
         sessionOptions,
       );
 
-      // Log which execution provider is being used
-      const provider = this.session.handler?.backend || "unknown";
-      logger.info("SOLVER", `Using execution provider: ${provider}`);
+      // Log that session is created successfully
+      logger.info("SOLVER", "ONNX session created successfully");
 
       const metadataContent = await readFile(metadataPath, "utf-8");
       this.metadata = JSON.parse(metadataContent);
 
-      // Test inference
-      const inputShape = this.metadata!.input_shape;
-      let height: number, width: number;
+      if (!this.session || !this.metadata) {
+        throw new Error("Session or metadata initialization failed");
+      }
+
+      // Cache computed values for performance
+      const inputShape = this.metadata.input_shape;
 
       if (inputShape.length === 3) {
-        [, height, width] = inputShape;
+        this.height = inputShape[1]!;
+        this.width = inputShape[2]!;
       } else if (inputShape.length === 4) {
-        [, , height, width] = inputShape;
+        this.height = inputShape[2]!;
+        this.width = inputShape[3]!;
       } else {
         throw new Error(`Unexpected input_shape length: ${inputShape.length}`);
       }
 
-      const dummyData = new Float32Array(height * width).fill(0);
+      this.mean = this.metadata.normalization.mean[0]!;
+      this.std = this.metadata.normalization.std[0]!;
+      this.validCharacters = new Set(this.metadata.chars);
+      this.inputName = this.session.inputNames[0]!;
+
+      // Warm up the model with a test inference
+      const dummyData = new Float32Array(this.height * this.width).fill(0);
       const dummyTensor = new ort.Tensor("float32", dummyData, [
         1,
         1,
-        height,
-        width,
+        this.height,
+        this.width,
       ]);
 
-      const inputName = this.session.inputNames[0];
-      await this.session.run({ [inputName]: dummyTensor });
+      await this.session.run({ [this.inputName]: dummyTensor });
 
       this.isInitialized = true;
       logger.info("SOLVER", "ONNX model initialized successfully");
@@ -104,36 +124,39 @@ export class CaptchaSolver {
     imageBuffer: Buffer,
   ): Promise<ort.Tensor | null> {
     try {
-      if (!this.metadata) throw new Error("Metadata not loaded");
-
-      const inputShape = this.metadata.input_shape;
-      let height: number, width: number;
-
-      if (inputShape.length === 3) {
-        [, height, width] = inputShape;
-      } else {
-        [, , height, width] = inputShape;
-      }
-
-      const mean = this.metadata.normalization.mean[0];
-      const std = this.metadata.normalization.std[0];
-
+      // Use cached values instead of recalculating
       const rawPixels = await sharp(imageBuffer)
         .grayscale()
-        .resize(width, height, { fit: "fill", kernel: "lanczos3" })
+        .resize(this.width, this.height, { fit: "fill", kernel: "linear" }) // linear is much faster than lanczos3
         .raw()
         .toBuffer();
 
       const normalized = new Float32Array(rawPixels.length);
+      const invStd = 1.0 / this.std; // Multiply is faster than divide
+
       for (let i = 0; i < rawPixels.length; i++) {
-        normalized[i] = (rawPixels[i] / 255.0 - mean) / std;
+        normalized[i] = (rawPixels[i]! / 255.0 - this.mean) * invStd;
       }
 
-      return new ort.Tensor("float32", normalized, [1, 1, height, width]);
+      return new ort.Tensor("float32", normalized, [
+        1,
+        1,
+        this.height,
+        this.width,
+      ]);
     } catch (error) {
       logger.error("SOLVER", "Error preprocessing image:", error);
       return null;
     }
+  }
+
+  // Batch preprocessing for multiple images
+  private async preprocessImages(
+    imageBuffers: Buffer[],
+  ): Promise<ort.Tensor[]> {
+    return Promise.all(
+      imageBuffers.map((buffer) => this.preprocessImage(buffer)),
+    ).then((tensors) => tensors.filter((t): t is ort.Tensor => t !== null));
   }
 
   async solveCaptcha(imageBuffer: Buffer, fid?: string): Promise<SolveResult> {
@@ -147,7 +170,6 @@ export class CaptchaSolver {
     }
 
     this.stats.totalAttempts++;
-    const startTime = Date.now();
 
     try {
       const inputTensor = await this.preprocessImage(imageBuffer);
@@ -156,23 +178,25 @@ export class CaptchaSolver {
         return { code: null, success: false, method: "ONNX", confidence: 0.0 };
       }
 
-      const inputName = this.session.inputNames[0];
-      const outputs = await this.session.run({ [inputName]: inputTensor });
+      // Use cached input name
+      const outputs = await this.session.run({
+        [this.inputName]: inputTensor,
+      });
 
       const idxToChar = this.metadata.idx_to_char;
       let predictedText = "";
       const confidences: number[] = [];
 
       for (let pos = 0; pos < 4; pos++) {
-        const outputName = this.session.outputNames[pos];
-        const outputTensor = outputs[outputName];
+        const outputName = this.session.outputNames[pos]!;
+        const outputTensor = outputs[outputName as string]!;
         const charProbs = outputTensor.data as Float32Array;
 
         let maxIdx = 0;
-        let maxProb = charProbs[0];
+        let maxProb = charProbs[0]!;
         for (let i = 1; i < charProbs.length; i++) {
-          if (charProbs[i] > maxProb) {
-            maxProb = charProbs[i];
+          if (charProbs[i]! > maxProb) {
+            maxProb = charProbs[i]!;
             maxIdx = i;
           }
         }
@@ -183,12 +207,11 @@ export class CaptchaSolver {
 
       const avgConfidence =
         confidences.reduce((a, b) => a + b, 0) / confidences.length;
-      const duration = Date.now() - startTime;
 
-      const VALID_CHARACTERS = new Set(this.metadata.chars);
+      // Use cached valid characters set
       const isValid =
         predictedText.length === 4 &&
-        [...predictedText].every((c) => VALID_CHARACTERS.has(c));
+        [...predictedText].every((c) => this.validCharacters.has(c));
 
       if (isValid) {
         this.stats.successfulDecodes++;
@@ -197,10 +220,14 @@ export class CaptchaSolver {
             avgConfidence) /
           this.stats.successfulDecodes;
 
-        logger.info(
-          "SOLVER",
-          `ID ${fid}: Solved '${predictedText}' (${avgConfidence.toFixed(3)}, ${duration}ms)`,
-        );
+        // Only log in development or if confidence is low
+        if (process.env.NODE_ENV === "development" || avgConfidence < 0.9) {
+          logger.info(
+            "SOLVER",
+            `ID ${fid}: Solved '${predictedText}' (${avgConfidence.toFixed(3)})`,
+          );
+        }
+
         return {
           code: predictedText,
           success: true,
@@ -217,6 +244,102 @@ export class CaptchaSolver {
       logger.error("SOLVER", `ID ${fid}: Exception:`, error);
       return { code: null, success: false, method: "ONNX", confidence: 0.0 };
     }
+  }
+
+  // Optimized batch solving - processes multiple captchas more efficiently
+  async solveBatch(
+    imageBuffers: Buffer[],
+    ids?: string[],
+  ): Promise<SolveResult[]> {
+    if (!this.isInitialized || !this.session || !this.metadata) {
+      return imageBuffers.map(() => ({
+        code: null,
+        success: false,
+        method: "ONNX" as const,
+        confidence: 0.0,
+      }));
+    }
+
+    // Preprocess all images in parallel
+    const tensors = await this.preprocessImages(imageBuffers);
+
+    // Run inference on all tensors in parallel
+    const results = await Promise.all(
+      tensors.map(async (tensor, idx) => {
+        const fid = ids?.[idx];
+        this.stats.totalAttempts++;
+
+        try {
+          const outputs = await this.session!.run({
+            [this.inputName]: tensor,
+          });
+
+          const idxToChar = this.metadata!.idx_to_char;
+          let predictedText = "";
+          const confidences: number[] = [];
+
+          for (let pos = 0; pos < 4; pos++) {
+            const outputName = this.session!.outputNames[pos]!;
+            const outputTensor = outputs[outputName as string]!;
+            const charProbs = outputTensor.data as Float32Array;
+
+            let maxIdx = 0;
+            let maxProb = charProbs[0]!;
+            for (let i = 1; i < charProbs.length; i++) {
+              if (charProbs[i]! > maxProb) {
+                maxProb = charProbs[i]!;
+                maxIdx = i;
+              }
+            }
+
+            predictedText += idxToChar[maxIdx.toString()];
+            confidences.push(maxProb);
+          }
+
+          const avgConfidence =
+            confidences.reduce((a, b) => a + b, 0) / confidences.length;
+
+          const isValid =
+            predictedText.length === 4 &&
+            [...predictedText].every((c) => this.validCharacters.has(c));
+
+          if (isValid) {
+            this.stats.successfulDecodes++;
+            this.stats.averageConfidence =
+              (this.stats.averageConfidence *
+                (this.stats.successfulDecodes - 1) +
+                avgConfidence) /
+              this.stats.successfulDecodes;
+
+            return {
+              code: predictedText,
+              success: true,
+              method: "ONNX" as const,
+              confidence: avgConfidence,
+            };
+          } else {
+            this.stats.failures++;
+            return {
+              code: null,
+              success: false,
+              method: "ONNX" as const,
+              confidence: 0.0,
+            };
+          }
+        } catch (error) {
+          this.stats.failures++;
+          logger.error("SOLVER", `Batch ID ${fid}: Exception:`, error);
+          return {
+            code: null,
+            success: false,
+            method: "ONNX" as const,
+            confidence: 0.0,
+          };
+        }
+      }),
+    );
+
+    return results;
   }
 
   getStats(): CaptchaSolverStats {
