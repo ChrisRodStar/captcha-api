@@ -18,13 +18,14 @@ RUN apt-get update && apt-get install -y \
 # 4. CUDA runtime libraries are installed above (libcublas, libcudnn, etc.)
 #    These are required for onnxruntime-node CUDA provider to work
 
-# Install dependencies with Bun (no --frozen-lockfile so Bun can resolve for Linux in Docker)
+# Install dependencies with Bun but skip onnxruntime-node (we'll install it separately with CUDA)
 COPY package.json bun.lock ./
 RUN bun install
 
-# Remove the CPU-only onnxruntime-node installed by Bun and reinstall with CUDA support
+# Clean install onnxruntime-node with CUDA support using npm
+# The CUDA binaries are downloaded automatically during npm install
 RUN rm -rf node_modules/onnxruntime-node && \
-    npm install onnxruntime-node --onnxruntime-node-install-cuda
+    npm install onnxruntime-node --no-save --legacy-peer-deps
 
 # Copy source code and models
 COPY src ./src
