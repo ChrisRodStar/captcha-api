@@ -26,4 +26,4 @@ COPY models ./models
 COPY tsconfig.json ./
 
 EXPOSE 3001
-CMD ["node", "--loader", "tsx", "src/index.ts"]
+CMD ["npx", "tsx", "src/index.ts"]
