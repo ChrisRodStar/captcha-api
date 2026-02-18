@@ -1,5 +1,10 @@
-FROM oven/bun:1 AS base
+FROM oven/bun:1-debian AS base
 WORKDIR /app
+
+# Install system dependencies for onnxruntime-node
+RUN apt-get update && apt-get install -y \
+    libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
 COPY package.json bun.lock ./
