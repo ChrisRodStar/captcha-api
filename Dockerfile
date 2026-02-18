@@ -22,9 +22,9 @@ RUN apt-get update && apt-get install -y \
 COPY package.json bun.lock ./
 RUN bun install
 
-# Install onnxruntime-node with CUDA support
-# The --onnxruntime-node-install-cuda flag triggers CUDA binary download
-RUN npm install onnxruntime-node --onnxruntime-node-install-cuda
+# Remove the CPU-only onnxruntime-node installed by Bun and reinstall with CUDA support
+RUN rm -rf node_modules/onnxruntime-node && \
+    npm install onnxruntime-node --onnxruntime-node-install-cuda
 
 # Copy source code and models
 COPY src ./src
