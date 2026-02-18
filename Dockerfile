@@ -18,7 +18,7 @@ RUN apt-get update && apt-get install -y \
 
 # Install dependencies with npm (CUDA binaries are downloaded automatically)
 COPY package.json ./
-RUN npm install
+RUN npm install && npm install -g tsx
 
 # Copy source code and models
 COPY src ./src
