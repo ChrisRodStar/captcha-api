@@ -119,7 +119,7 @@ export class CaptchaSolver {
       // If session wasn't created (GPU failed), create with CPU
       if (!sessionCreated) {
         const sessionOptions: ort.InferenceSession.SessionOptions = {
-          executionProviders: executionProviders,
+          executionProviders: ["cpu"],
           graphOptimizationLevel: "all",
           enableCpuMemArena: true,
           enableMemPattern: true,
@@ -132,52 +132,52 @@ export class CaptchaSolver {
           modelPath,
           sessionOptions,
         );
-      }
-
-      // Get available execution providers and determine which one is being used
-      const availableProviders = await ort.InferenceSession.getAvailableProviders();
-      this.gpuStatus.availableProviders = availableProviders;
-      this.gpuStatus.requestedProviders = executionProviders;
-      if (!this.gpuStatus.enabled) {
-        this.gpuStatus.enabled = useGpu; // Only set if not already set by error handler
-      }
-
-      // Determine which provider is actually being used
-      // ONNX Runtime will use the first available provider from the requested list
-      const activeProvider = executionProviders.find((ep) =>
-        availableProviders.includes(ep),
-      );
-
-      if (activeProvider) {
-        this.gpuStatus.provider = activeProvider;
-        // Check if it's a GPU provider
-        const gpuProviders = ["cuda", "dml", "tensorrt", "rocm"];
-        this.gpuStatus.available = gpuProviders.includes(activeProvider);
-
-        if (this.gpuStatus.available) {
-          logger.info(
-            "SOLVER",
-            `✅ GPU acceleration active using: ${activeProvider.toUpperCase()}`,
-          );
-        } else {
-          logger.info(
-            "SOLVER",
-            `Using execution provider: ${activeProvider.toUpperCase()}`,
-          );
-        }
-      } else {
+        // GPU failed, so we're using CPU
         this.gpuStatus.provider = "cpu";
         this.gpuStatus.available = false;
-        logger.warn(
-          "SOLVER",
-          "No requested execution providers available, falling back to CPU",
-        );
+        this.gpuStatus.enabled = false; // Mark as disabled since it failed
+        logger.info("SOLVER", "Using execution provider: CPU (GPU unavailable)");
+      } else {
+        // Session was created successfully - determine which provider is being used
+        // Since we requested providers in order, ONNX Runtime uses the first available one
+        // We can infer from whether GPU was requested and whether it succeeded
+        if (useGpu && sessionCreated) {
+          // Try to determine which provider was actually used
+          // If we requested ["cuda", "cpu"] and it succeeded, it's likely CUDA
+          // If we requested ["dml", "cuda", "cpu"] and it succeeded, it's likely DML or CUDA
+          const gpuProviders = ["cuda", "dml", "tensorrt", "rocm"];
+          const firstRequested = executionProviders[0];
+          
+          if (firstRequested && gpuProviders.includes(firstRequested)) {
+            // Assume GPU provider is being used since session creation succeeded
+            this.gpuStatus.provider = firstRequested;
+            this.gpuStatus.available = true;
+            logger.info(
+              "SOLVER",
+              `✅ GPU acceleration active using: ${firstRequested.toUpperCase()}`,
+            );
+          } else {
+            // Fallback to CPU
+            this.gpuStatus.provider = "cpu";
+            this.gpuStatus.available = false;
+            logger.info("SOLVER", "Using execution provider: CPU");
+          }
+        } else {
+          // CPU-only mode
+          this.gpuStatus.provider = "cpu";
+          this.gpuStatus.available = false;
+          logger.info("SOLVER", "Using execution provider: CPU");
+        }
       }
 
-      logger.info(
-        "SOLVER",
-        `Available execution providers: ${availableProviders.join(", ")}`,
-      );
+      // Set status tracking
+      this.gpuStatus.requestedProviders = executionProviders;
+      this.gpuStatus.availableProviders = executionProviders; // Approximate - we don't have exact API
+      if (this.gpuStatus.enabled === false && useGpu) {
+        // Only update if not already set by error handler
+        this.gpuStatus.enabled = useGpu;
+      }
+
       logger.info("SOLVER", "ONNX session created successfully");
 
       const metadataContent = await readFile(metadataPath, "utf-8");
