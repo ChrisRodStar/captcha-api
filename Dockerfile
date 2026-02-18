@@ -8,14 +8,33 @@ RUN apt-get update && apt-get install -y \
     gnupg2 \
     curl \
     npm \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Install CUDA runtime libraries for GPU support (required by onnxruntime-node CUDA provider)
+# These are the minimal CUDA runtime libraries needed for onnxruntime-node
+# Note: This installs CUDA 12.2 runtime libraries compatible with CUDA 12.x
+RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && \
+    dpkg -i cuda-keyring_1.1-1_all.deb && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    cuda-cudart-12-2 \
+    cuda-nvrtc-12-2 \
+    libcublas-12-2 \
+    libcurand-12-2 \
+    libcusolver-12-2 \
+    libcusparse-12-2 \
+    libcudnn9 \
+    && rm -f cuda-keyring_1.1-1_all.deb \
+    && rm -rf /var/lib/apt/lists/* \
+    && ldconfig
 
 # Note: For GPU support:
 # 1. NVIDIA GPU with CUDA 12.x drivers installed on the host (✓ verified working)
 # 2. nvidia-container-toolkit installed on the host (✓ verified working)
 # 3. runtime: nvidia configured in docker-compose.yml (✓ configured)
-# 4. CUDA runtime libraries are provided by nvidia-container-toolkit via the host
-#    The onnxruntime-node CUDA binaries should work if GPU is accessible
+# 4. CUDA runtime libraries are installed above (libcublas, libcudnn, etc.)
+#    These are required for onnxruntime-node CUDA provider to work
 
 # Install dependencies with Bun (no --frozen-lockfile so Bun can resolve for Linux in Docker)
 COPY package.json bun.lock ./
