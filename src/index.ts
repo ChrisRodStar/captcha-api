@@ -139,10 +139,17 @@ const modeInfo = gpuStatus.available
   : gpuStatus.enabled
     ? "GPU mode (CPU fallback)"
     : "CPU mode";
-logger.info("SERVER", `🚀 CAPTCHA Solver API running on port ${PORT} (${modeInfo})`);
+logger.info(
+  "SERVER",
+  `🚀 CAPTCHA Solver API running on port ${PORT} (${modeInfo})`,
+);
 
-// Export for Bun server
-export default {
-  port: PORT,
+// Start server with Node.js
+import { serve } from "@hono/node-server";
+
+serve({
   fetch: app.fetch,
-};
+  port: PORT,
+});
+
+logger.info("SERVER", `Server listening on http://localhost:${PORT}`);
