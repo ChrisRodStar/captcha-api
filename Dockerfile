@@ -16,12 +16,8 @@ RUN apt-get update && apt-get install -y \
 RUN echo 'deb [trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /' > /etc/apt/sources.list.d/cuda.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends \
-    cuda-cudart-12-2 \
-    cuda-nvrtc-12-2 \
-    libcublas-12-2 \
-    libcurand-12-2 \
-    libcusolver-12-2 \
-    libcusparse-12-2 \
+    cuda-cudart-12-6 \
+    libcublas-12-6 \
     libcudnn9-cuda-12 \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig
