@@ -22,16 +22,7 @@ bun install
    - `captcha_model.onnx`
    - `captcha_model_metadata.json`
 
-3. **GPU Acceleration (Recommended)**:
-
-   The API uses CUDA for GPU acceleration. To enable:
-   - Install [CUDA Toolkit](https://developer.nvidia.com/cuda-downloads) (version 11.x or 12.x)
-   - Ensure NVIDIA GPU drivers are up to date
-   - The API will automatically use GPU if available, fallback to CPU otherwise
-
-   Check GPU usage in logs: `Using execution provider: cuda` or `cpu`
-
-4. Run the server:
+3. Run the server:
 
 ```bash
 bun run src/index.ts
@@ -139,18 +130,7 @@ bun run dev
 
 ## Performance
 
-- Average solve time:
-  - GPU (CUDA): ~5-20ms per CAPTCHA
-  - CPU: ~50-100ms per CAPTCHA
-- Concurrent requests: Limited by GPU/CPU resources
+- Average solve time (CPU): ~50-100ms per CAPTCHA
+- Concurrent requests: Limited by CPU resources
 - Success rate: ~97%
 - Cost: $0 (local processing)
-
-## Troubleshooting
-
-**GPU not detected:**
-
-- Verify CUDA installation: `nvidia-smi`
-- Check CUDA version compatibility with onnxruntime-node
-- Ensure GPU drivers are updated
-- API will automatically fallback to CPU if GPU unavailable

@@ -1,7 +1,7 @@
 FROM oven/bun:1-debian AS base
 WORKDIR /app
 
-# Install system dependencies for onnxruntime-node with CUDA support
+# Install system dependencies for onnxruntime-node (CPU)
 RUN apt-get update && apt-get install -y \
     libgomp1 \
     wget \

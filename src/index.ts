@@ -7,7 +7,6 @@ import { CaptchaSolver } from "./solver";
 // Load environment variables
 const PORT = parseInt(process.env.PORT || "3000", 10);
 const NODE_ENV = process.env.NODE_ENV || "development";
-const CUDA_DEVICE_ID = process.env.CUDA_DEVICE_ID || "0";
 
 const app = new Hono();
 const solver = new CaptchaSolver();
@@ -127,8 +126,7 @@ const initializeSolver = async () => {
 await initializeSolver();
 
 logger.info("SERVER", `Environment: ${NODE_ENV}`);
-logger.info("SERVER", `CUDA Device ID: ${CUDA_DEVICE_ID}`);
-logger.info("SERVER", `🚀 CAPTCHA Solver API running on port ${PORT}`);
+logger.info("SERVER", `🚀 CAPTCHA Solver API running on port ${PORT} (CPU only)`);
 
 // Export for Bun server
 export default {
