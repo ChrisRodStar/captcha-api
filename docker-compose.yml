@@ -33,7 +33,8 @@ services:
     networks:
       - captcha-network
 
-  # Optional: expose the API publicly via ngrok (requires NGROK_AUTHTOKEN in .env)
+  # Expose the API publicly via ngrok (requires NGROK_AUTHTOKEN in .env)
+  # To disable ngrok, comment out this service or set profiles: [ngrok] to only start with --profile ngrok
   ngrok:
     image: ngrok/ngrok:latest
     container_name: captcha-ngrok
@@ -45,8 +46,6 @@ services:
     networks:
       - captcha-network
     restart: unless-stopped
-    profiles:
-      - ngrok
 
 networks:
   captcha-network:
