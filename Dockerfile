@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     wget \
     gnupg2 \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install dependencies
