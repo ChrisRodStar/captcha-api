@@ -27,6 +27,14 @@ interface CaptchaSolverStats {
   averageConfidence: number;
 }
 
+interface GpuStatus {
+  enabled: boolean;
+  available: boolean;
+  provider: string | null;
+  availableProviders: string[];
+  requestedProviders: string[];
+}
+
 export class CaptchaSolver {
   private session: ort.InferenceSession | null = null;
   private metadata: ModelMetadata | null = null;
@@ -40,6 +48,15 @@ export class CaptchaSolver {
   private validCharacters: Set<string> = new Set();
   private inputName: string = "";
 
+  // GPU status tracking
+  private gpuStatus: GpuStatus = {
+    enabled: false,
+    available: false,
+    provider: null,
+    availableProviders: [],
+    requestedProviders: [],
+  };
+
   private stats: CaptchaSolverStats = {
     totalAttempts: 0,
     successfulDecodes: 0,
@@ -51,9 +68,31 @@ export class CaptchaSolver {
     try {
       logger.info("SOLVER", `Loading ONNX model from: ${modelPath}`);
 
-      // CPU-only execution (GPU disabled)
+      // Determine execution providers based on environment variable
+      const useGpu = process.env.USE_GPU === "true" || process.env.GPU_ENABLED === "true";
+      const executionProviders: string[] = [];
+      
+      if (useGpu) {
+        // Try GPU providers first, fallback to CPU
+        // CUDA for NVIDIA GPUs (Linux/Windows with CUDA installed)
+        // DirectML for Windows with compatible GPU
+        // Note: CUDA EP binaries are included by default in onnxruntime-node
+        if (process.platform === "win32") {
+          // Windows: Try DirectML first (works with AMD/NVIDIA/Intel GPUs), then CUDA, then CPU
+          executionProviders.push("dml", "cuda", "cpu");
+        } else {
+          // Linux: Try CUDA first, then CPU
+          executionProviders.push("cuda", "cpu");
+        }
+        logger.info("SOLVER", "GPU support enabled - attempting to use GPU execution providers");
+      } else {
+        // CPU-only execution
+        executionProviders.push("cpu");
+        logger.info("SOLVER", "Using CPU-only execution");
+      }
+
       const sessionOptions: ort.InferenceSession.SessionOptions = {
-        executionProviders: ["cpu"],
+        executionProviders: executionProviders,
         graphOptimizationLevel: "all",
         enableCpuMemArena: true,
         enableMemPattern: true,
@@ -67,7 +106,48 @@ export class CaptchaSolver {
         sessionOptions,
       );
 
-      // Log that session is created successfully
+      // Get available execution providers and determine which one is being used
+      const availableProviders = await ort.InferenceSession.getAvailableProviders();
+      this.gpuStatus.availableProviders = availableProviders;
+      this.gpuStatus.requestedProviders = executionProviders;
+      this.gpuStatus.enabled = useGpu;
+
+      // Determine which provider is actually being used
+      // ONNX Runtime will use the first available provider from the requested list
+      const activeProvider = executionProviders.find((ep) =>
+        availableProviders.includes(ep),
+      );
+
+      if (activeProvider) {
+        this.gpuStatus.provider = activeProvider;
+        // Check if it's a GPU provider
+        const gpuProviders = ["cuda", "dml", "tensorrt", "rocm"];
+        this.gpuStatus.available = gpuProviders.includes(activeProvider);
+
+        if (this.gpuStatus.available) {
+          logger.info(
+            "SOLVER",
+            `✅ GPU acceleration active using: ${activeProvider.toUpperCase()}`,
+          );
+        } else {
+          logger.info(
+            "SOLVER",
+            `Using execution provider: ${activeProvider.toUpperCase()}`,
+          );
+        }
+      } else {
+        this.gpuStatus.provider = "cpu";
+        this.gpuStatus.available = false;
+        logger.warn(
+          "SOLVER",
+          "No requested execution providers available, falling back to CPU",
+        );
+      }
+
+      logger.info(
+        "SOLVER",
+        `Available execution providers: ${availableProviders.join(", ")}`,
+      );
       logger.info("SOLVER", "ONNX session created successfully");
 
       const metadataContent = await readFile(metadataPath, "utf-8");
@@ -342,5 +422,9 @@ export class CaptchaSolver {
 
   isReady(): boolean {
     return this.isInitialized;
+  }
+
+  getGpuStatus(): GpuStatus {
+    return { ...this.gpuStatus };
   }
 }

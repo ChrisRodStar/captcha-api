@@ -5,6 +5,7 @@ Standalone CAPTCHA solving API using ONNX model for high-performance, concurrent
 ## Features
 
 - Fast ONNX-based CAPTCHA solving (~97% accuracy)
+- GPU acceleration support (CUDA/DirectML) with automatic CPU fallback
 - Concurrent request handling
 - Batch processing endpoint
 - Health checks and statistics
@@ -22,7 +23,13 @@ bun install
    - `captcha_model.onnx`
    - `captcha_model_metadata.json`
 
-3. Run the server:
+3. Configure GPU (optional):
+   - Edit `.env` and set `USE_GPU=true` to enable GPU acceleration
+   - **For NVIDIA GPUs (Linux/Windows):** Install CUDA 12.x and cuDNN
+   - **For Windows:** DirectML is automatically available (works with AMD/NVIDIA/Intel GPUs)
+   - The system will automatically fallback to CPU if GPU is not available
+
+4. Run the server:
 
 ```bash
 bun run src/index.ts
@@ -82,11 +89,54 @@ Solve multiple CAPTCHAs concurrently.
 
 ### GET /health
 
-Check server health and readiness.
+Check server health and readiness. Includes GPU status information.
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "ready": true,
+  "gpu": {
+    "enabled": true,
+    "available": true,
+    "provider": "cuda",
+    "availableProviders": ["cuda", "cpu"],
+    "requestedProviders": ["cuda", "cpu"]
+  },
+  "stats": {
+    "totalAttempts": 100,
+    "successfulDecodes": 97,
+    "failures": 3,
+    "averageConfidence": 0.985
+  }
+}
+```
 
 ### GET /stats
 
 Get solver statistics.
+
+### GET /gpu
+
+Get detailed GPU status information.
+
+**Response:**
+```json
+{
+  "enabled": true,
+  "available": true,
+  "provider": "cuda",
+  "availableProviders": ["cuda", "cpu"],
+  "requestedProviders": ["cuda", "cpu"]
+}
+```
+
+**GPU Status Fields:**
+- `enabled`: Whether GPU was requested via `USE_GPU` environment variable
+- `available`: Whether a GPU execution provider is actually being used
+- `provider`: The execution provider currently in use (`cuda`, `dml`, `cpu`, etc.)
+- `availableProviders`: All execution providers available on the system
+- `requestedProviders`: Execution providers that were requested (in priority order)
 
 ## Deployment
 
@@ -128,9 +178,35 @@ cloudflared tunnel run captcha-api
 bun run dev
 ```
 
+## GPU Setup
+
+### NVIDIA GPU (CUDA)
+
+**Linux:**
+1. Install CUDA 12.x toolkit and cuDNN
+2. Verify installation: `nvidia-smi`
+3. Set `USE_GPU=true` in `.env`
+
+**Windows:**
+1. Install CUDA 12.x toolkit and cuDNN from NVIDIA
+2. Verify installation: `nvidia-smi` in PowerShell
+3. Set `USE_GPU=true` in `.env`
+
+### Windows DirectML (Alternative)
+
+DirectML works automatically on Windows 10/11 with compatible GPUs (AMD/NVIDIA/Intel). No additional drivers needed beyond standard Windows GPU drivers. Set `USE_GPU=true` in `.env`.
+
+### Verification
+
+Check the server logs on startup to see which execution provider is being used:
+- `Available execution providers: cuda, cpu` (CUDA available)
+- `Available execution providers: dml, cpu` (DirectML available)
+- `Available execution providers: cpu` (CPU only)
+
 ## Performance
 
 - Average solve time (CPU): ~50-100ms per CAPTCHA
-- Concurrent requests: Limited by CPU resources
+- Average solve time (GPU): ~10-30ms per CAPTCHA (varies by GPU)
+- Concurrent requests: Limited by CPU/GPU resources
 - Success rate: ~97%
 - Cost: $0 (local processing)

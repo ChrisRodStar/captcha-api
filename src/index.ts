@@ -34,6 +34,7 @@ app.get("/", (c) => {
       solve: "POST /solve",
       batch: "POST /solve/batch",
       stats: "/stats",
+      gpu: "/gpu",
     },
   });
 });
@@ -43,6 +44,7 @@ app.get("/health", (c) => {
   return c.json({
     status: "ok",
     ready: solver.isReady(),
+    gpu: solver.getGpuStatus(),
     stats: solver.getStats(),
   });
 });
@@ -107,6 +109,11 @@ app.get("/stats", (c) => {
   return c.json(solver.getStats());
 });
 
+// GPU status endpoint
+app.get("/gpu", (c) => {
+  return c.json(solver.getGpuStatus());
+});
+
 // Initialize solver
 const initializeSolver = async () => {
   try {
@@ -126,7 +133,13 @@ const initializeSolver = async () => {
 await initializeSolver();
 
 logger.info("SERVER", `Environment: ${NODE_ENV}`);
-logger.info("SERVER", `🚀 CAPTCHA Solver API running on port ${PORT} (CPU only)`);
+const gpuStatus = solver.getGpuStatus();
+const modeInfo = gpuStatus.available
+  ? `GPU mode (${gpuStatus.provider?.toUpperCase()})`
+  : gpuStatus.enabled
+    ? "GPU mode (CPU fallback)"
+    : "CPU mode";
+logger.info("SERVER", `🚀 CAPTCHA Solver API running on port ${PORT} (${modeInfo})`);
 
 // Export for Bun server
 export default {
