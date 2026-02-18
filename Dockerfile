@@ -1,26 +1,15 @@
-FROM oven/bun:1-debian
+FROM nvidia/cuda:12.6.0-cudnn-runtime-ubuntu22.04
 WORKDIR /app
 
-# Install system dependencies for onnxruntime-node (CPU) + healthcheck + npm for CUDA binary installation
+# Install Bun
 RUN apt-get update && apt-get install -y \
-    libgomp1 \
-    wget \
-    gnupg2 \
     curl \
+    unzip \
     npm \
     ca-certificates \
+    && curl -fsSL https://bun.sh/install | bash \
+    && ln -s /root/.bun/bin/bun /usr/local/bin/bun \
     && rm -rf /var/lib/apt/lists/*
-
-# Install CUDA runtime libraries for GPU support (required by onnxruntime-node CUDA provider)
-# Add NVIDIA repo with trusted=yes only (no cuda-keyring) to avoid GPG/SHA1 conflict on Debian Trixie
-RUN echo 'deb [trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /' > /etc/apt/sources.list.d/cuda.list && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    cuda-cudart-12-6 \
-    libcublas-12-6 \
-    libcudnn9-cuda-12 \
-    && rm -rf /var/lib/apt/lists/* \
-    && ldconfig
 
 # Note: For GPU support:
 # 1. NVIDIA GPU with CUDA 12.x drivers installed on the host (✓ verified working)
