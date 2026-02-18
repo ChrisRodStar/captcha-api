@@ -68,8 +68,8 @@ export class CaptchaSolver {
     try {
       logger.info("SOLVER", `Loading ONNX model from: ${modelPath}`);
 
-      // Determine execution providers based on environment variable
-      const useGpu = process.env.USE_GPU === "true" || process.env.GPU_ENABLED === "true";
+      // Determine execution providers - default to GPU enabled, can be disabled via USE_GPU=false
+      const useGpu = process.env.USE_GPU !== "false";
       const executionProviders: string[] = [];
       
       if (useGpu) {

@@ -23,8 +23,9 @@ bun install
    - `captcha_model.onnx`
    - `captcha_model_metadata.json`
 
-3. Configure GPU (optional):
-   - Edit `.env` and set `USE_GPU=true` to enable GPU acceleration
+3. GPU Configuration:
+   - GPU acceleration is **enabled by default**
+   - Set `USE_GPU=false` in `.env` to disable GPU and use CPU only
    - **For NVIDIA GPUs (Linux/Windows):** Install CUDA 12.x and cuDNN
    - **For Windows:** DirectML is automatically available (works with AMD/NVIDIA/Intel GPUs)
    - The system will automatically fallback to CPU if GPU is not available
@@ -148,17 +149,32 @@ Get detailed GPU status information.
 docker-compose up -d
 ```
 
-2. View logs:
+2. **If you've updated the code and need to rebuild** (to avoid using cached images):
 
 ```bash
-docker-compose logs -f
+# Stop containers
+docker-compose down
+
+# Rebuild without cache
+docker-compose build --no-cache
+
+# Start containers
+docker-compose up -d
 ```
 
-3. Stop:
+3. View logs:
+
+```bash
+docker-compose logs -f captcha-api
+```
+
+4. Stop:
 
 ```bash
 docker-compose down
 ```
+
+**Note:** The `USE_GPU` environment variable from your `.env` file will be passed to the container. Make sure to rebuild if you change this setting.
 
 ### Cloudflare Tunnel
 
