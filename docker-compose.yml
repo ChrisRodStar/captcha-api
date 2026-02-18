@@ -22,6 +22,21 @@ services:
     networks:
       - captcha-network
 
+  # Optional: expose the API publicly via ngrok (requires NGROK_AUTHTOKEN in .env)
+  ngrok:
+    image: ngrok/ngrok:latest
+    container_name: captcha-ngrok
+    command: ["http", "captcha-api:3001"]
+    environment:
+      - NGROK_AUTHTOKEN=${NGROK_AUTHTOKEN}
+    depends_on:
+      - captcha-api
+    networks:
+      - captcha-network
+    restart: unless-stopped
+    profiles:
+      - ngrok
+
 networks:
   captcha-network:
     driver: bridge
