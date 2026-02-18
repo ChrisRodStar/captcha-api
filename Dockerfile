@@ -15,9 +15,14 @@ RUN apt-get update && apt-get install -y \
 # These are the minimal CUDA runtime libraries needed for onnxruntime-node
 # Note: This installs CUDA 12.2 runtime libraries compatible with CUDA 12.x
 # Workaround for Debian Trixie's strict GPG key requirements (SHA1 rejection)
+# We configure apt to trust the NVIDIA repository despite GPG warnings
 RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb && \
     dpkg -i cuda-keyring_1.1-1_all.deb && \
-    apt-get update --allow-insecure-repositories && \
+    echo 'Acquire::AllowInsecureRepositories "true";' > /etc/apt/apt.conf.d/99allow-insecure && \
+    echo 'APT::Get::AllowUnauthenticated "true";' >> /etc/apt/apt.conf.d/99allow-insecure && \
+    echo 'Acquire::Check-Valid-Until "false";' >> /etc/apt/apt.conf.d/99allow-insecure && \
+    echo 'deb [trusted=yes] https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/ /' >> /etc/apt/sources.list.d/cuda.list && \
+    apt-get update && \
     apt-get install -y --no-install-recommends --allow-unauthenticated \
     cuda-cudart-12-2 \
     cuda-nvrtc-12-2 \
@@ -25,8 +30,9 @@ RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x8
     libcurand-12-2 \
     libcusolver-12-2 \
     libcusparse-12-2 \
-    libcudnn9 \
+    libcudnn9-cuda-12 \
     && rm -f cuda-keyring_1.1-1_all.deb \
+    && rm -f /etc/apt/apt.conf.d/99allow-insecure \
     && rm -rf /var/lib/apt/lists/* \
     && ldconfig
 
