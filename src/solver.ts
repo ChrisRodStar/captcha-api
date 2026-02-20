@@ -246,9 +246,10 @@ export class CaptchaSolver {
   ): Promise<ort.Tensor | null> {
     try {
       // Use cached values instead of recalculating
+      // Use lanczos3 kernel for higher quality resizing (matches WOS's LANCZOS)
       const rawPixels = await sharp(imageBuffer)
         .grayscale()
-        .resize(this.width, this.height, { fit: "fill", kernel: "linear" }) // linear is much faster than lanczos3
+        .resize(this.width, this.height, { fit: "fill", kernel: "lanczos3" })
         .raw()
         .toBuffer();
 
@@ -421,6 +422,7 @@ export class CaptchaSolver {
         success: false,
         method: "ONNX" as const,
         confidence: 0.0,
+        solveTimeMs: 0,
       }));
     }
 
